@@ -22,7 +22,7 @@ plot(mod)
 
 hist(mod$residuals)
 
-#making a poredict
+#making a predict
 
 new_petal_width <- data.frame(Petal.Width = c(5,7,9,3))
 
@@ -35,3 +35,5 @@ iris %>%
   ggplot(aes(x=Sepal.Length, y= Petal.Width))+
   geom_point()+
   stat_smooth(method = 'lm')
+
+'great'
