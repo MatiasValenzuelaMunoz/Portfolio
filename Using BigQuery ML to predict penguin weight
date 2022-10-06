@@ -55,7 +55,6 @@ FROM ML.PREDICT(MODEL `bqml_tutorial.penguins_model`,
 		)
 
 
-
 # Explain prediction results with explainable AI methods
 
 
