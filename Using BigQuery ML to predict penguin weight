@@ -1,3 +1,12 @@
+Using BigQuery ML to predict penguin weight
+
+
+This tutorial introduces data analysts to BigQuery ML. BigQuery ML enables users to create and execute machine learning models in BigQuery using SQL queries.
+The goal is to democratize machine learning by enabling SQL practitioners to build models using their existing tools and to increase development speed by eliminating the need for data movement.
+
+In this tutorial, you use the penguin table to create a model that predicts the weight of a penguin based on the penguin's species, island of residence, culmen length and depth, flipper length, and sex.
+
+
 # Creating a linear model on 'body_mass_g' column
 
 #standardSQL
