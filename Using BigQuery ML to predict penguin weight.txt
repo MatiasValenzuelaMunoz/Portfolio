@@ -1,5 +1,6 @@
 # Creating a linear model on 'body_mass_g' column
 
+
 #standardSQL
 CREATE OR REPLACE MODEL `bqml_tutorial.penguins_model`
 OPTIONS
