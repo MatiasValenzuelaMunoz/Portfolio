@@ -1,0 +1,60 @@
+# Creating a linear model on 'body_mass_g' column
+
+#standardSQL
+CREATE OR REPLACE MODEL `bqml_tutorial.penguins_model`
+OPTIONS
+  (model_type='linear_reg',
+    input_label_cols=['body_mass_g']) AS
+SELECT
+  *
+FROM
+  `bigquery-public-data.ml_datasets.penguins`
+WHERE
+  body_mass_g IS NOT NULL
+
+
+
+# evaluating the MODEL
+
+#standardSQL
+SELECT
+  *
+FROM
+  ML.EVALUATE(MODEL `bqml_tutorial.penguins_model`,
+    (
+    SELECT
+      *
+    FROM
+      `bigquery-public-data.ml_datasets.penguins`
+    WHERE
+      'body_mass_g' IS NOT NULL )
+    )
+
+
+
+# Using the model to predict the body weight
+
+#standardSQL
+SELECT *
+FROM ML.PREDICT(MODEL `bqml_tutorial.penguins_model`,
+	(
+  	SELECT *  
+	FROM `bigquery-public-data.ml_datasets.penguins`
+  	WHERE 'body_mass_g' IS NOT NULL
+  	AND island = 'Biscoe'
+	)
+		)
+
+
+
+# Explain prediction results with explainable AI methods
+
+
+#standardSQL
+SELECT *
+FROM ML.EXPLAIN_PREDICT (MODEL `bqml_tutorial.penguins_model`,(
+  SELECT *  
+  FROM `bigquery-public-data.ml_datasets.penguins`
+  WHERE 'body_mass_g' IS NOT NULL
+        AND island = 'Biscoe'),
+  STRUCT(3 as top_k_features))
