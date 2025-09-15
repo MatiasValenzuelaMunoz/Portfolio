@@ -1,0 +1,79 @@
+# ETL Notebook: Extract, Transform, Load with PySpark and Watermark Logic
+
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col, lit, row_number, max as spark_max
+from pyspark.sql.window import Window
+
+# Path to the source Delta table (Parquet format)
+source_path = "abfss://1f5c80d3-7e8a-466d-a5f8-4fc9d33932b5@onelake.pbidedicated.windows.net/04afdc48-0348-4070-a627-b3ab0f4c2a3d/Tables/bronze_reach_hourly/conversationtranscript"
+
+# Path for the watermark table (Delta Lake format)
+watermark_path = "Tables/etl_watermark"
+
+# Load data from the Parquet file
+df = spark.read.parquet(source_path)
+
+# ------------------------------------------------------
+# Watermark logic: filter out records already processed
+# ------------------------------------------------------
+
+try:
+    # Try to read the current watermark value
+    watermark_df = spark.read.format("delta").load(watermark_path)
+    last_processed_date = watermark_df.collect()[0]["last_processed_date"]
+    print(f"Loaded last watermark: {last_processed_date}")
+except Exception as e:
+    # If the watermark table does not exist, use a default initial date
+    last_processed_date = "2025-01-06"
+    print(f"Could not load watermark, using default: {last_processed_date}")
+
+# Filter only records greater than the watermark
+df = df.filter(col("SinkCreatedOn") > lit(last_processed_date))
+
+# If there are no new records, stop processing
+if df.count() == 0:
+    print("No new records to process. ETL job finished.")
+else:
+    # Deduplicate by keeping the latest record per Id based on SinkModifiedOn
+    window_spec = Window.partitionBy("Id").orderBy(col("SinkModifiedOn").desc())
+    df = (
+        df.withColumn("row_number", row_number().over(window_spec))
+          .filter(col("row_number") == 1)
+          .drop("row_number")
+    )
+
+    # --- ADDITION: Apply additional filters for downstream processing ---
+    df = (
+        df.dropna(subset=["bot_conversationtranscriptid"])
+          .select("bot_conversationtranscriptid", "modifiedon", 
+                  "bot_conversationtranscriptidname", "content")
+          .filter(col("bot_conversationtranscriptidname") == "Companion for PWA")
+          .filter(col("content").isNotNull())
+          .filter(col("content").startswith("{"))
+    )
+
+    # Count number of resulting records
+    final_count = df.count()
+    print(f"Deduplicated and filtered record count from {last_processed_date} to today: {final_count}")
+
+    # Define output path for Lakehouse destination
+    output_path = "Tables/conversationaltranscript_current_semester"
+
+    # Save the result in Delta format, overwriting existing data
+    df.write.format("delta").mode("overwrite").save(output_path)
+
+    # ------------------------------------------------------
+    # Update the watermark with the max SinkCreatedOn processed
+    # ------------------------------------------------------
+    new_watermark_row = df.agg(spark_max("modifiedon")).collect()[0][0]  # Use "modifiedon" or "SinkCreatedOn" if needed
+    if new_watermark_row is not None:
+        new_watermark = str(new_watermark_row)
+        print(f"Updating watermark to: {new_watermark}")
+        spark.createDataFrame([(new_watermark,)], ["last_processed_date"]) \
+            .write.format("delta").mode("overwrite").save(watermark_path)
+    else:
+        print("No valid records found to update the watermark.")
+
+# Note: Watermark is a checkpoint to read only new records since last watermark.
+
+# Testing source control
