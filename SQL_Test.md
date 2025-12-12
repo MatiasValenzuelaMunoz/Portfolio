@@ -115,56 +115,80 @@ ORDER BY total_clients DESC;
 **SQL Query**:
 ```sql
 -- Q3: Time between stages per year
-WITH normalized_stages AS (
-    -- Normalize stage dates
-    SELECT 
+-- Q3: Time between stages per year (correct version)
+-- Each deal = unique (client_id, agent_id)
+
+WITH normalized AS (
+    -- Clean and normalize timestamps
+    SELECT
         client_id,
+        agent_id,
         new_stage,
-        to_timestamp(created_at, 'MM/DD/YYYY HH24:MI') as stage_time
+        TO_TIMESTAMP(created_at, 'MM/DD/YYYY HH24:MI') AS stage_time
     FROM agent_client_stages
     WHERE created_at IS NOT NULL
         AND new_stage IN ('new', 'connected', 'closed')
 ),
-stage_times AS (
-    -- Get last timestamp per client and stage
-    SELECT 
+
+stage_pivot AS (
+    -- Pivot stages per deal (client_id + agent_id)
+    SELECT
         client_id,
-        MAX(CASE WHEN new_stage = 'new' THEN stage_time END) as new_time,
-        MAX(CASE WHEN new_stage = 'connected' THEN stage_time END) as connected_time,
-        MAX(CASE WHEN new_stage = 'closed' THEN stage_time END) as closed_time
-    FROM normalized_stages
-    GROUP BY client_id
+        agent_id,
+
+        -- FIRST time the deal reached each stage (not last!)
+        MIN(CASE WHEN new_stage = 'new' THEN stage_time END) AS new_time,
+        MIN(CASE WHEN new_stage = 'connected' THEN stage_time END) AS connected_time,
+        MIN(CASE WHEN new_stage = 'closed' THEN stage_time END) AS closed_time
+
+    FROM normalized
+    GROUP BY client_id, agent_id
     HAVING 
-        -- Only clients who went through new and connected
-        MAX(CASE WHEN new_stage = 'new' THEN stage_time END) IS NOT NULL
-        AND MAX(CASE WHEN new_stage = 'connected' THEN stage_time END) IS NOT NULL
-)
--- Calculate metrics per year
-SELECT 
-    EXTRACT(YEAR FROM new_time) as year,
-    COUNT(*) as total_clients,
-    -- Average time new → connected (days)
-    ROUND(AVG(EXTRACT(DAY FROM (connected_time - new_time))), 2) as avg_days_new_to_connected,
-    -- Median new → connected (better for outliers)
-    PERCENTILE_CONT(0.5) WITHIN GROUP (
-        ORDER BY EXTRACT(DAY FROM (connected_time - new_time))
-    ) as median_days_new_to_connected,
-    -- Time connected → closed (only for closed deals)
-    ROUND(AVG(
+        -- Only deals that progressed at least to connected
+        MIN(CASE WHEN new_stage = 'new' THEN stage_time END) IS NOT NULL
+        AND MIN(CASE WHEN new_stage = 'connected' THEN stage_time END) IS NOT NULL
+),
+
+deal_durations AS (
+    -- Compute time differences per deal
+    SELECT
+        client_id,
+        agent_id,
+        new_time,
+        connected_time,
+        closed_time,
+
+        -- durations in days
+        EXTRACT(EPOCH FROM (connected_time - new_time)) / 86400.0 AS days_new_to_connected,
         CASE 
             WHEN closed_time IS NOT NULL 
-            THEN EXTRACT(DAY FROM (closed_time - connected_time))
-        END
-    ), 2) as avg_days_connected_to_closed,
-    -- Percentage of clients who closed
+            THEN EXTRACT(EPOCH FROM (closed_time - connected_time)) / 86400.0
+        END AS days_connected_to_closed
+    FROM stage_pivot
+    WHERE connected_time > new_time  -- validate temporal consistency
+)
+
+-- Final aggregation: compare by year
+SELECT
+    EXTRACT(YEAR FROM new_time) AS year,
+    COUNT(*) AS total_deals,
+
+    ROUND(AVG(days_new_to_connected), 2) AS avg_days_new_to_connected,
+    PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY days_new_to_connected) 
+        AS median_days_new_to_connected,
+
+    ROUND(AVG(days_connected_to_closed), 2) AS avg_days_connected_to_closed,
+
+    -- Percentage of deals that reached closed
     ROUND(
-        SUM(CASE WHEN closed_time IS NOT NULL THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 
+        SUM(CASE WHEN closed_time IS NOT NULL THEN 1 ELSE 0 END) 
+        * 100.0 / COUNT(*),
         2
-    ) as closed_percentage
-FROM stage_times
-WHERE connected_time > new_time  -- Validate temporal order
-GROUP BY EXTRACT(YEAR FROM new_time)
-ORDER BY year;
+    ) AS closed_percentage
+
+FROM deal_durations
+GROUP BY 1
+ORDER BY 1;
 ```
 
 **Key Insights**:
@@ -509,5 +533,6 @@ CREATE INDEX idx_clients_area ON clients(area_id);
 **Contact**: valenzuelamatias26@gmail.com / +56 9 48668071 
 **Submission Date**: 08 December 2025  
 **Tools Used**: PostgreSQL, AI-assisted development (documented above), Business analytics framework
+
 
 **Note**: All queries tested with provided sample data structure and assume standard PostgreSQL 12+ compatibility.
