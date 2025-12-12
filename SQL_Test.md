@@ -114,7 +114,6 @@ ORDER BY total_clients DESC;
 
 **SQL Query**:
 ```sql
--- Q3: Time between stages per year
 -- Q3: Time between stages per year (correct version)
 -- Each deal = unique (client_id, agent_id)
 
@@ -536,3 +535,4 @@ CREATE INDEX idx_clients_area ON clients(area_id);
 
 
 **Note**: All queries tested with provided sample data structure and assume standard PostgreSQL 12+ compatibility.
+
